@@ -1,6 +1,6 @@
 blueprint:
-  name: "Growatt: Pametno nočno polnjenje baterije"
-  description: "Dinamično polni baterijo ob cenejši tarifi in ščiti hišni priključek pred preobremenitvijo (Max 4kW)."
+  name: "Growatt: Pametno nočno polnjenje baterije (Popravljen FW + Zamik)"
+  description: "Dinamično polni baterijo ob cenejši tarifi, ščiti hišni priključek pred preobremenitvijo ter prisili preklop omrežje/razsmernik z nastavljivim odmikom in zakasnitvijo."
   domain: automation
   input:
     growatt_soc:
@@ -25,6 +25,42 @@ blueprint:
         entity:
           filter:
             - domain: number
+    growatt_bat_low_to_uti:
+      name: Battery Low to UTI (Number)
+      description: Izberite entiteto number.growatt_rs485_battery_bat_low_to_uti
+      selector:
+        entity:
+          filter:
+            - domain: number
+    growatt_ac_to_bat_volt:
+      name: AC to Bat Volt/Porcent (Number)
+      description: Izberite entiteto number.growatt_rs485_battery_ac_to_bat_volt
+      selector:
+        entity:
+          filter:
+            - domain: number
+    offset_percentage:
+      name: Odmik od trenutnega SOC (%)
+      description: Za koliko % manj od trenutnega SOC naj se nastavita parametra Bat Low in AC to Bat, da prisilimo preklop.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 15
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    switch_delay:
+      name: Zakasnitev preklopa (sekunde)
+      description: Koliko sekund naj avtomatizacija počaka po spremembi Bat Low / AC to Bat registra, preden spremeni način polnjenja.
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 60
+          step: 5
+          unit_of_measurement: "s"
+          mode: slider
     shelly_power:
       name: Shelly merilnik skupne moči hiše
       description: Izberite senzor skupne porabe hiše v Wattih (W).
@@ -105,6 +141,17 @@ action:
         entity_id: !input growatt_soc
         below: !input target_soc
     then:
+      # Prisili preklop na omrežje z znižanjem "Bat Low to UTI" pod realni SOC glede na vpisani odmik
+      - service: number.set_value
+        target:
+          entity_id: !input growatt_bat_low_to_uti
+        data:
+          value: "{{ (states(growatt_soc) | float - (offset_percentage | float)) | round(0) }}"
+      
+      # Časovni zamik, da razsmernik prebavi nov register
+      - delay:
+          seconds: "{{ switch_delay | int }}"
+          
       - service: select.select_option
         target:
           entity_id: !input growatt_charge_config
@@ -173,6 +220,17 @@ action:
           - condition: trigger
             id: konec_cas
     then:
+      # Prisili preklop nazaj na razsmernik z znižanjem "AC to Bat Volt" pod realni SOC glede na vpisani odmik
+      - service: number.set_value
+        target:
+          entity_id: !input growatt_ac_to_bat_volt
+        data:
+          value: "{{ (states(growatt_soc) | float - (offset_percentage | float)) | round(0) }}"
+          
+      # Časovni zamik, da razsmernik prebavi nov register before preklopa načina
+      - delay:
+          seconds: "{{ switch_delay | int }}"
+          
       - service: select.select_option
         target:
           entity_id: !input growatt_charge_config
