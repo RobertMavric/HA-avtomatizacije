@@ -1,0 +1,119 @@
+- id: '1767545773726'
+  alias: Dynamic EV Charge Afyeev16A v2.23
+  description: ''
+  use_blueprint:
+    path: RobertMavric/DynamicEV-Charge-Afyeev16A-v2.2.yaml
+    input:
+      max_grid_power_night: 3200
+      max_grid_power_day: 2700
+      charging_current: number.elektrika_ev_charger_charging_current
+      min_amps: 6
+      day_time_days:
+      - mon
+      - tue
+      - wed
+      - thu
+      - fri
+      sensor_house_power: sensor.shelly_3f_active_power
+      max_amps: 12
+      voltage: 230
+      sensor_charging: sensor.elektrika_ev_charger_status
+      charger_toggle: switch.elektrika_ev_charger
+- id: '1788026301020'
+  alias: 'MeshCore Bot: Odziv na #si-test (2-byte Path)'
+  description: 'Odgovarja na .ping in .path na kanalu #si-test z idx2 ter izpiše pot
+    z 2-bytnimi naslovi'
+  triggers:
+  - trigger: event
+    event_type: meshcore_message
+  conditions:
+  - condition: template
+    value_template: '{{ trigger.event.data.channel == ''#si-test'' }}'
+  - condition: template
+    value_template: '{{ trigger.event.data.message | lower | trim in [''ping'', ''path'']
+      }}'
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.message | lower | trim == ''ping''
+          }}'
+      sequence:
+      - action: meshcore.send_channel_message
+        data:
+          channel_idx: 2
+          message: '@{{ trigger.event.data.sender_name }} Pong!'
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.message | lower | trim == ''path''
+          }}'
+      sequence:
+      - action: meshcore.send_channel_message
+        data:
+          channel_idx: 2
+          message: '@{{ trigger.event.data.sender_name }}  V Tolmin si priletel preko:
+            {% if trigger.event.data.rx_log_data and trigger.event.data.rx_log_data[0].path
+            %} {{ trigger.event.data.rx_log_data[0].path | batch(4) | map(''join'')
+            | join('' ➔ '') }} {% else %}Direktno{% endif %}  (Skoki: {{ trigger.event.data.hop_count
+            }}, SNR: {{ trigger.event.data.snr }})'
+  mode: single
+- id: '1790584220116'
+  alias: 'MeshCore Bot: Odziv na #posocje-test (2-byte Path)'
+  description: 'Odgovarja na .ping in .path na kanalu #tmin-test z idx4 ter izpiše
+    pot z 2-bytnimi naslovi'
+  triggers:
+  - trigger: event
+    event_type: meshcore_message
+  conditions:
+  - condition: template
+    value_template: '{{ trigger.event.data.channel == ''#posocje-test'' }}'
+  - condition: template
+    value_template: '{{ trigger.event.data.message | lower | trim in [''ping'', ''path'']
+      }}'
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.message | lower | trim == ''ping''
+          }}'
+      sequence:
+      - action: meshcore.send_channel_message
+        data:
+          channel_idx: 4
+          message: '@{{ trigger.event.data.sender_name }} Pong!'
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.message | lower | trim == ''path''
+          }}'
+      sequence:
+      - action: meshcore.send_channel_message
+        data:
+          channel_idx: 4
+          message: '@{{ trigger.event.data.sender_name }}  V Volče si priletel preko:
+            {% if trigger.event.data.rx_log_data and trigger.event.data.rx_log_data[0].path
+            %} {{ trigger.event.data.rx_log_data[0].path | batch(4) | map(''join'')
+            | join('' ➔ '') }} {% else %}Direktno{% endif %}  (Skoki: {{ trigger.event.data.hop_count
+            }}, SNR: {{ trigger.event.data.snr }})'
+  mode: single
+- id: '1790586906866'
+  alias: 'MeshCore Bot: Pošilja uro na 15min na #tmin-test'
+  description: 'Vsakih 15 minut pošlje trenutni čas na kanal #tmin-test z idx4'
+  triggers:
+  - trigger: time_pattern
+    minutes: /15
+  actions:
+  - action: meshcore.send_channel_message
+    data:
+      channel_idx: 4
+      message: 'Tmin bot: {{ now().strftime(''%H:%M'') }}.'
+  mode: single
+- id: '1791365619443'
+  alias: 'Growatt: Pametno jutranje polnjenje baterije'
+  description: ''
+  use_blueprint:
+    path: Growatt_smart_charging/growatt_smart_charging.yaml
+    input:
+      growatt_soc: sensor.growatt_rs485_battery_battery_soc
+      growatt_charge_config: select.growatt_rs485_battery_charge_config
+      growatt_charge_current: number.growatt_rs485_battery_ac_charge_current
+      shelly_power: sensor.shelly_3f_total
