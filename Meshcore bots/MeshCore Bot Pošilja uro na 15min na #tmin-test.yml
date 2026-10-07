@@ -1,0 +1,11 @@
+alias: 'MeshCore Bot: Pošilja uro na 15min na #tmin-test'
+description: 'Vsakih 15 minut pošlje trenutni čas na kanal #tmin-test z idx4'
+triggers:
+  - trigger: time_pattern
+    minutes: /15
+actions:
+  - action: meshcore.send_channel_message
+    data:
+      channel_idx: 4
+      message: 'Tmin bot: {{ now().strftime(''%H:%M'') }}.'
+mode: single

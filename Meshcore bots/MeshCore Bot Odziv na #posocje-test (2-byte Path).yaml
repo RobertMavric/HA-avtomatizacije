@@ -1,0 +1,38 @@
+alias: 'MeshCore Bot: Odziv na #posocje-test (2-byte Path)'
+description: >-
+  Odgovarja na .ping in .path na kanalu #tmin-test z idx4 ter izpiše pot z
+  2-bytnimi naslovi
+triggers:
+  - trigger: event
+    event_type: meshcore_message
+conditions:
+  - condition: template
+    value_template: '{{ trigger.event.data.channel == ''#posocje-test'' }}'
+  - condition: template
+    value_template: '{{ trigger.event.data.message | lower | trim in [''ping'', ''path''] }}'
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: '{{ trigger.event.data.message | lower | trim == ''ping'' }}'
+        sequence:
+          - action: meshcore.send_channel_message
+            data:
+              channel_idx: 4
+              message: '@{{ trigger.event.data.sender_name }} Pong!'
+      - conditions:
+          - condition: template
+            value_template: '{{ trigger.event.data.message | lower | trim == ''path'' }}'
+        sequence:
+          - action: meshcore.send_channel_message
+            data:
+              channel_idx: 4
+              message: >-
+                @{{ trigger.event.data.sender_name }}  V Volče si priletel
+                preko: {% if trigger.event.data.rx_log_data and
+                trigger.event.data.rx_log_data[0].path %} {{
+                trigger.event.data.rx_log_data[0].path | batch(4) | map('join')
+                | join(' ➔ ') }} {% else %}Direktno{% endif %}  (Skoki: {{
+                trigger.event.data.hop_count }}, SNR: {{ trigger.event.data.snr
+                }})
+mode: single
