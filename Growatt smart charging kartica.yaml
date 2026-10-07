@@ -84,6 +84,7 @@ cards:
                 --tile-color: red !important;
              {% endif %}
              }
+            /* Nastavitveni gumbi */
   - type: tile
     entity: number.growatt_rs485_battery_bat_low_to_uti
     name: Minimalna napolnjenost baterije (AC)
@@ -99,6 +100,52 @@ cards:
     columns: 4
     square: false
     cards:
+      - type: button
+        name: 30%
+        tap_action:
+          action: call-service
+          service: number.set_value
+          target:
+            entity_id: number.growatt_rs485_battery_bat_low_to_uti
+          data:
+            value: 30
+        card_mod:
+          style: |
+            ha-card {
+              height: 40px !important;
+              box-shadow: none !important;
+              border: none !important;
+              font-weight: bold !important;
+              {% if states('number.growatt_rs485_battery_bat_low_to_uti') | int == 30 %}
+                background: #ef2f2f !important;
+                color: #ffffff !important;
+              {% else %}
+                background: rgba(255, 255, 255, 0.05) !important;
+              {% endif %}
+            }
+      - type: button
+        name: 40%
+        tap_action:
+          action: call-service
+          service: number.set_value
+          target:
+            entity_id: number.growatt_rs485_battery_bat_low_to_uti
+          data:
+            value: 40
+        card_mod:
+          style: |
+            ha-card {
+              height: 40px !important;
+              box-shadow: none !important;
+              border: none !important;
+              font-weight: bold !important;
+              {% if states('number.growatt_rs485_battery_bat_low_to_uti') | int == 40 %}
+                background: var(--accent-color, #7e57c2) !important;
+                color: #ffffff !important;
+              {% else %}
+                background: rgba(255, 255, 255, 0.05) !important;
+              {% endif %}
+            }
       - type: button
         name: 50%
         tap_action:
@@ -139,52 +186,6 @@ cards:
               border: none !important;
               font-weight: bold !important;
               {% if states('number.growatt_rs485_battery_bat_low_to_uti') | int == 60 %}
-                background: var(--accent-color, #7e57c2) !important;
-                color: #ffffff !important;
-              {% else %}
-                background: rgba(255, 255, 255, 0.05) !important;
-              {% endif %}
-            }
-      - type: button
-        name: 70%
-        tap_action:
-          action: call-service
-          service: number.set_value
-          target:
-            entity_id: number.growatt_rs485_battery_bat_low_to_uti
-          data:
-            value: 70
-        card_mod:
-          style: |
-            ha-card {
-              height: 40px !important;
-              box-shadow: none !important;
-              border: none !important;
-              font-weight: bold !important;
-              {% if states('number.growatt_rs485_battery_bat_low_to_uti') | int == 70 %}
-                background: var(--accent-color, #7e57c2) !important;
-                color: #ffffff !important;
-              {% else %}
-                background: rgba(255, 255, 255, 0.05) !important;
-              {% endif %}
-            }
-      - type: button
-        name: 80%
-        tap_action:
-          action: call-service
-          service: number.set_value
-          target:
-            entity_id: number.growatt_rs485_battery_bat_low_to_uti
-          data:
-            value: 80
-        card_mod:
-          style: |
-            ha-card {
-              height: 40px !important;
-              box-shadow: none !important;
-              border: none !important;
-              font-weight: bold !important;
-              {% if states('number.growatt_rs485_battery_bat_low_to_uti') | int == 80 %}
                 background: var(--accent-color, #7e57c2) !important;
                 color: #ffffff !important;
               {% else %}
@@ -427,7 +428,7 @@ cards:
               border: none !important;
               font-weight: bold !important;
               {% if states('number.growatt_rs485_battery_ac_charge_current') | int == 40 %}
-                background: #d32f2f !important;
+                background: #ef2f2f !important;
                 color: #ffffff !important;
               {% else %}
                 background: rgba(255, 255, 255, 0.05) !important;
