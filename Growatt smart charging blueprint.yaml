@@ -1,6 +1,6 @@
 blueprint:
-  name: "Growatt: Pametno nočno polnjenje baterije (Popravljen FW + Zamik)"
-  description: "Dinamično polni baterijo ob cenejši tarifi, ščiti hišni priključek pred preobremenitvijo ter prisili preklop omrežje/razsmernik z nastavljivim odmikom in zakasnitvijo."
+  name: "Growatt: Pametno nočno polnjenje baterije (Dinamični SPF Fix)"
+  description: "Polni baterijo z manipulacijo registrov ter vključuje dinamično zaščito s pametnim filtrom, ki preprečuje blokado RS485 vodila na SPF 6000 ES."
   domain: automation
   input:
     growatt_soc:
@@ -11,13 +11,6 @@ blueprint:
           filter:
             - domain: sensor
               device_class: battery
-    growatt_charge_config:
-      name: Nastavitev načina polnjenja (Select)
-      description: Izberite select entiteto za preklop OSO/SNU.
-      selector:
-        entity:
-          filter:
-            - domain: select
     growatt_charge_current:
       name: Tok polnjenja baterije (Number)
       description: Izberite number entiteto za nastavljanje amperov (A).
@@ -49,17 +42,6 @@ blueprint:
           max: 15
           step: 1
           unit_of_measurement: "%"
-          mode: slider
-    switch_delay:
-      name: Zakasnitev preklopa (sekunde)
-      description: Koliko sekund naj avtomatizacija počaka po spremembi Bat Low / AC to Bat registra, preden spremeni način polnjenja.
-      default: 15
-      selector:
-        number:
-          min: 5
-          max: 60
-          step: 5
-          unit_of_measurement: "s"
           mode: slider
     shelly_power:
       name: Shelly merilnik skupne moči hiše
@@ -94,8 +76,8 @@ blueprint:
           mode: slider
     max_grid_power:
       name: Kritična moč priključka (W)
-      description: Meja (npr. 3900 W za 4kW), nad katero se polnjenje takoj ustavi.
-      default: 3900
+      description: Meja (npr. 3000 W), nad katero se polnjenje takoj zmanjša/ustavi.
+      default: 3000
       selector:
         number:
           min: 1000
@@ -105,7 +87,7 @@ blueprint:
           mode: box
     max_charge_current:
       name: Maksimalni varni tok polnjenja (A)
-      description: Vpišite največji tok (npr. 30A za 16A varovalko ali 40A za močnejšo), ki ga sistem uporabi, ko je poraba hiše nizka.
+      description: Vpišite največji nočni tok (npr. 30A ali 40A), ki ga sistem uporabi, ko je poraba nizka.
       default: 30
       selector:
         number:
@@ -114,6 +96,12 @@ blueprint:
           step: 10
           unit_of_measurement: "A"
           mode: box
+
+variables:
+  soc_sensor: !input growatt_soc
+  offset_val: !input offset_percentage
+  max_current_val: !input max_charge_current
+  current_entity: !input growatt_charge_current
 
 trigger:
   - platform: time
@@ -133,112 +121,138 @@ trigger:
 condition: []
 
 action:
-  # 1. AKCIJA: Začetek polnjenja ob nastavljeni uri
-  - if:
-      - condition: trigger
-        id: zacetek
-      - condition: numeric_state
-        entity_id: !input growatt_soc
-        below: !input target_soc
-    then:
-      # Prisili preklop na omrežje z znižanjem "Bat Low to UTI" pod realni SOC glede na vpisani odmik
-      - service: number.set_value
-        target:
-          entity_id: !input growatt_bat_low_to_uti
-        data:
-          value: "{{ (states(growatt_soc) | float - (offset_percentage | float)) | round(0) }}"
-      
-      # Časovni zamik, da razsmernik prebavi nov register
-      - delay:
-          seconds: "{{ switch_delay | int }}"
-          
-      - service: select.select_option
-        target:
-          entity_id: !input growatt_charge_config
-        data:
-          option: SNU
-      - service: number.set_value
-        target:
-          entity_id: !input growatt_charge_current
-        data:
-          value: 20
+  - choose:
+      # 1. AKCIJA: Začetek polnjenja ob nastavljeni uri (ali ob ročnem zagonu)
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: zacetek
+              - condition: template
+                value_template: "{{ trigger is not defined or trigger.id is not defined or trigger.id not in ['konec_soc', 'konec_cas', 'preverjanje_moci'] }}"
+          - condition: numeric_state
+            entity_id: !input growatt_soc
+            below: !input target_soc
+        sequence:
+          # Najprej nastavimo začetni tok na 20A
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_charge_current
+            data:
+              value: 20
+          - delay: "00:00:03"
+          # Prisili preklop na omrežje z znižanjem Bat Low pod realni SOC
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_bat_low_to_uti
+            data:
+              value: "{{ (states(soc_sensor) | float - (offset_val | float)) | round(0) }}"
 
-  # 2. AKCIJA: Dinamična zaščita (Izvaja se vsako minuto le znotraj časovnega okna)
-  - if:
-      - condition: trigger
-        id: preverjanje_moci
-      - condition: time
-        after: !input start_time
-        before: !input end_time
-      - condition: numeric_state
-        entity_id: !input growatt_soc
-        below: !input target_soc
-    then:
-      - choose:
-          # 1. STOPNJA: Skupna poraba hiše presega vpisano kritično mejo -> Takoj izklopi (0A)
-          - conditions:
-              - condition: numeric_state
-                entity_id: !input shelly_power
-                above: !input max_grid_power
-            sequence:
-              - service: number.set_value
-                target:
-                  entity_id: !input growatt_charge_current
-                data:
-                  value: 0
-
-          # 2. STOPNJA: Moč je blizu kritične (Zgornja meja - 400W). Prisili na 10A (0.5kW)
-          - conditions:
-              - condition: numeric_state
-                entity_id: !input shelly_power
-                above: 3500
-            sequence:
-              - service: number.set_value
-                target:
-                  entity_id: !input growatt_charge_current
-                data:
-                  value: 10
-
-          # 3. STOPNJA: Varno območje. Dvigni na polno vpisano moč varovalke iz okenca
-          - conditions:
-              - condition: numeric_state
-                entity_id: !input shelly_power
-                below: 2500
-            sequence:
-              - service: number.set_value
-                target:
-                  entity_id: !input growatt_charge_current
-                data:
-                  value: !input max_charge_current
-
-  # 3. AKCIJA: Popoln izklop ob doseženem % baterije ali koncu ure
-  - if:
-      - condition: or
-        conditions:
+      # 2. AKCIJA: Dinamična zaščita (Izvaja se vsako minuto LE ZNOTRAJ časovnega okna ali ko polni)
+      - conditions:
           - condition: trigger
-            id: konec_soc
-          - condition: trigger
-            id: konec_cas
-    then:
-      # Prisili preklop nazaj na razsmernik z znižanjem "AC to Bat Volt" pod realni SOC glede na vpisani odmik
-      - service: number.set_value
-        target:
-          entity_id: !input growatt_ac_to_bat_volt
-        data:
-          value: "{{ (states(growatt_soc) | float - (offset_percentage | float)) | round(0) }}"
-          
-      # Časovni zamik, da razsmernik prebavi nov register before preklopa načina
-      - delay:
-          seconds: "{{ switch_delay | int }}"
-          
-      - service: select.select_option
-        target:
-          entity_id: !input growatt_charge_config
-        data:
-          option: OSO
-      - service: number.set_value
-        target:
-          entity_id: !input growatt_charge_current
-        data:
-          value: 0
-mode: restart
+            id: preverjanje_moci
+          - condition: numeric_state
+            entity_id: !input growatt_soc
+            below: !input target_soc
+          - condition: or
+            conditions:
+              - condition: time
+                after: !input start_time
+                before: !input end_time
+              - condition: numeric_state
+                entity_id: !input growatt_charge_current
+                above: 0
+        sequence:
+          - choose:
+              # STOPNJA 1: Poraba presega kritično mejo (npr. priklop EV) -> Zmanjšaj na 0A
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    above: !input max_grid_power
+                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 0A
+                  - condition: template
+                    value_template: "{{ states(current_entity) | int != 0 }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input growatt_charge_current
+                    data:
+                      value: 0
+
+              # STOPNJA 2: Poraba je visoka, a pod kritično mejo (npr. med 2400W in 3000W) -> Omeji na 10A
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    above: 2400
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    below: !input max_grid_power
+                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 10A
+                  - condition: template
+                    value_template: "{{ states(current_entity) | int != 10 }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input growatt_charge_current
+                    data:
+                      value: 10
+
+              # STOPNJA 3: Poraba je zmerna (npr. med 1500W in 2400W) -> Nastavi na 20A
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    above: 1500
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    below: 2400
+                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 20A
+                  - condition: template
+                    value_template: "{{ states(current_entity) | int != 20 }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input growatt_charge_current
+                    data:
+                      value: 20
+
+              # STOPNJA 4: Varno območje (Poraba hiše je nizka, pod 1500W) -> Dvigni na maksimalni varni tok
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input shelly_power
+                    below: 1500
+                  # Pametni filter: Ukaz pošljemo le, če tok že ni na max vrednosti
+                  - condition: template
+                    value_template: "{{ states(current_entity) | int != (max_current_val | int) }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input growatt_charge_current
+                    data:
+                      value: "{{ max_current_val | int }}"
+
+      # 3. AKCIJA: Popoln izklop ob doseženem % baterije ali koncu ure
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: konec_soc
+              - condition: trigger
+                id: konec_cas
+        sequence:
+          # Prisili preklop nazaj na razsmernik z znižanjem AC to Bat pod trenutni SOC
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_ac_to_bat_volt
+            data:
+              value: "{{ (states(soc_sensor) | float - (offset_val | float)) | round(0) }}"
+          - delay: "00:00:03"
+          # Popolnoma zapremo tok polnjenja na 0A
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_charge_current
+            data:
+              value: 0
+
+mode: parallel
+max: 10
