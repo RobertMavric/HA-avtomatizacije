@@ -4,8 +4,6 @@ cards:
     columns: 2
     square: false
     cards:
-      
-      # 1. Stanje baterije (Rdeča <= 30 %, Rumena 31–60 %, Zelena > 60 %)
       - type: tile
         entity: sensor.growatt_rs485_battery_battery_soc
         name: Stanje baterije
@@ -22,13 +20,13 @@ cards:
                 --tile-color: green !important;  
               {% endif %}
             }
-        #
       - type: tile
         entity: automation.growatt_pametno_jutranje_polnjenje_baterije
         name: Pametno polnjenje
-        icon: mdi:robot-text
+        icon: mdi:robot
         color: green
-        #
+        vertical: false
+        features_position: bottom
       - type: tile
         entity: sensor.growatt_rs485_solar_solar_total_power
         name: Solarna moč
@@ -47,48 +45,45 @@ cards:
                 --tile-color: yellow !important;
               {% endif %}
             }
-    #
       - type: tile
         entity: sensor.growatt_rs485_grid_ac_input_power
         name: Vhodna moč
         icon: mdi:power-plug
         card_mod:
           style: |
-           ha-tile-icon {
-             {% if states('sensor.growatt_rs485_grid_ac_input_power') | float(0) >= 3000 %}
-               --tile-color: red !important;
-             {% else %}
-               --tile-color: green !important;
-            {% endif %}
-            }
-        #
+            ha-tile-icon {
+              {% if states('sensor.growatt_rs485_grid_ac_input_power') | float(0) >= 3000 %}
+                --tile-color: red !important;
+              {% else %}
+                --tile-color: green !important;
+             {% endif %}
+             }
       - type: tile
         entity: sensor.growatt_rs485_solar_ac_power
         name: Izhodna moč
         icon: mdi:power-plug
         card_mod:
           style: |
-           ha-tile-icon {
-             {% if states('sensor.growatt_rs485_solar_ac_power') | float(0) >= 4000 %}
-               --tile-color: red !important;
-             {% else %}
-               --tile-color: green !important;
-            {% endif %}
-            }
-        #
+            ha-tile-icon {
+              {% if states('sensor.growatt_rs485_solar_ac_power') | float(0) >= 4000 %}
+                --tile-color: red !important;
+              {% else %}
+                --tile-color: green !important;
+             {% endif %}
+             }
       - type: tile
         entity: sensor.growatt_rs485_grid_grid_voltage
         name: Vhodna napetost
         icon: mdi:power-plug
         card_mod:
           style: |
-           ha-tile-icon {
-             {% if states('sensor.growatt_rs485_grid_grid_voltage') | float(0) >= 150 %}
-               --tile-color: green !important;
-             {% else %}
-               --tile-color: red !important;
-            {% endif %}
-            }
+            ha-tile-icon {
+              {% if states('sensor.growatt_rs485_grid_grid_voltage') | float(0) >= 150 %}
+                --tile-color: green !important;
+              {% else %}
+                --tile-color: red !important;
+             {% endif %}
+             }
   - type: tile
     entity: number.growatt_rs485_battery_bat_low_to_uti
     name: Minimalna napolnjenost baterije (AC)
