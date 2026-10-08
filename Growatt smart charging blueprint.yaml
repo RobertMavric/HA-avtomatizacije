@@ -1,11 +1,11 @@
 blueprint:
-  name: "Growatt: Pametno nočno polnjenje baterije (Dinamični SPF Fix)"
-  description: "Polni baterijo z manipulacijo registrov ter vključuje dinamično zaščito s pametnim filtrom, ki preprečuje blokado RS485 vodila na SPF 6000 ES."
+  name: "Growatt: Pametno nočno polnjenje baterije (Zanesljiv SPF Fiksni Način)"
+  description: "Fiksno polni baterijo ob nočni tarifi z manipulacijo Bat Low / AC to Bat registrov. Prilagojeno za Growatt SPF 6000 ES z varnostnimi zamiki in avtomatsko obnovitvijo registrov."
   domain: automation
   input:
     growatt_soc:
       name: Senzor za % baterije (SOC)
-      description: Izberite senzor, ki kaže napolnjenost Growatt baterije.
+      description: Izberite senzor, ki kaže trenutno napolnjenost (SOC) Growatt baterije.
       selector:
         entity:
           filter:
@@ -34,7 +34,7 @@ blueprint:
             - domain: number
     offset_percentage:
       name: Odmik od trenutnega SOC (%)
-      description: Za koliko % manj od trenutnega SOC naj se nastavita parametra Bat Low in AC to Bat, da prisilimo preklop.
+      description: Za koliko % MANJ od trenutnega SOC naj se začasno nastavita parametra, da prisilimo preklop.
       default: 5
       selector:
         number:
@@ -43,29 +43,21 @@ blueprint:
           step: 1
           unit_of_measurement: "%"
           mode: slider
-    shelly_power:
-      name: Shelly merilnik skupne moči hiše
-      description: Izberite senzor skupne porabe hiše v Wattih (W).
-      selector:
-        entity:
-          filter:
-            - domain: sensor
-              device_class: power
     start_time:
       name: Čas začetka polnjenja
-      description: Kdaj naj se polnjenje iz omrežja začne.
+      description: Kdaj naj se polnjenje iz omrežja začne (npr. 00:00:00).
       default: "00:00:00"
       selector:
         time: {}
     end_time:
       name: Čas konca polnjenja
-      description: Kdaj se cenejša tarifa izteče.
+      description: Kdaj se polnjenje NEGLEDE na stanje baterije mora zaključiti (npr. 06:00:00).
       default: "06:00:00"
       selector:
         time: {}
     target_soc:
       name: Ciljni % baterije (Drsnik)
-      description: Do koliko % naj se baterija napolni zjutraj.
+      description: Do koliko % naj se baterija napolni zjutraj (če doseže prej kot poteče čas).
       default: 80
       selector:
         number:
@@ -74,34 +66,46 @@ blueprint:
           step: 5
           unit_of_measurement: "%"
           mode: slider
-    max_grid_power:
-      name: Kritična moč priključka (W)
-      description: Meja (npr. 3000 W), nad katero se polnjenje takoj zmanjša/ustavi.
-      default: 3000
+    max_charge_current:
+      name: Fiksni nočni tok polnjenja (A)
+      description: Ročno izbran varni tok (npr. 30A), s katerim bo Growatt polnil celo noč.
+      default: 30
       selector:
         number:
-          min: 1000
-          max: 10000
-          step: 100
-          unit_of_measurement: "W"
+          min: 0
+          max: 80
+          step: 5
+          unit_of_measurement: "A"
           mode: box
-    max_charge_current:
-      name: Maksimalni varni tok polnjenja (A)
-      description: Vpišite največji nočni tok (npr. 30A ali 40A), ki ga sistem uporabi, ko je poraba nizka.
+    default_bat_low:
+      name: Privzeta dnevna vrednost Bat Low to UTI (%)
+      description: Na koliko % naj se ta parameter ponastavi zjutraj za normalno dnevno delovanje.
       default: 30
       selector:
         number:
           min: 10
-          max: 80
-          step: 10
-          unit_of_measurement: "A"
+          max: 90
+          step: 5
+          unit_of_measurement: "%"
+          mode: box
+    default_ac_to_bat:
+      name: Privzeta dnevna vrednost AC to Bat Volt (%)
+      description: Na koliko % naj se ta parameter ponastavi zjutraj za normalno dnevno delovanje.
+      default: 50
+      selector:
+        number:
+          min: 10
+          max: 95
+          step: 5
+          unit_of_measurement: "%"
           mode: box
 
 variables:
   soc_sensor: !input growatt_soc
   offset_val: !input offset_percentage
   max_current_val: !input max_charge_current
-  current_entity: !input growatt_charge_current
+  def_bat_low: !input default_bat_low
+  def_ac_to_bat: !input default_ac_to_bat
 
 trigger:
   - platform: time
@@ -114,124 +118,42 @@ trigger:
   - platform: time
     at: !input end_time
     id: konec_cas
-  - platform: time_pattern
-    minutes: "/1"
-    id: preverjanje_moci
 
 condition: []
 
 action:
   - choose:
-      # 1. AKCIJA: Začetek polnjenja ob nastavljeni uri (ali ob ročnem zagonu)
+      # 1. AKCIJA: ZAČETEK POLNJENJA Ob nastavljeni uri (ali ob ročnem zagonu)
       - conditions:
           - condition: or
             conditions:
               - condition: trigger
                 id: zacetek
+              # Omogoča zanesljiv ročni zagon preko gumba
               - condition: template
-                value_template: "{{ trigger is not defined or trigger.id is not defined or trigger.id not in ['konec_soc', 'konec_cas', 'preverjanje_moci'] }}"
+                value_template: "{{ trigger is not defined or trigger.id is not defined or trigger.id not in ['konec_soc', 'konec_cas'] }}"
           - condition: numeric_state
             entity_id: !input growatt_soc
             below: !input target_soc
         sequence:
-          # Najprej nastavimo začetni tok na 20A
+          # KORAK 1: Nastavimo ročno izbrani nočni tok (npr. 30A)
           - service: number.set_value
             target:
               entity_id: !input growatt_charge_current
             data:
-              value: 20
-          - delay: "00:00:03"
-          # Prisili preklop na omrežje z znižanjem Bat Low pod realni SOC
+              value: "{{ max_current_val | int }}"
+          
+          # Zamik 15 sekund, da se vpis toka stabilizira na RS485
+          - delay: "00:00:15"
+          
+          # KORAK 2: Prelisičimo register z znižanjem Bat Low pod realni SOC -> Growatt preklopi na omrežje
           - service: number.set_value
             target:
               entity_id: !input growatt_bat_low_to_uti
             data:
               value: "{{ (states(soc_sensor) | float - (offset_val | float)) | round(0) }}"
 
-      # 2. AKCIJA: Dinamična zaščita (Izvaja se vsako minuto LE ZNOTRAJ časovnega okna ali ko polni)
-      - conditions:
-          - condition: trigger
-            id: preverjanje_moci
-          - condition: numeric_state
-            entity_id: !input growatt_soc
-            below: !input target_soc
-          - condition: or
-            conditions:
-              - condition: time
-                after: !input start_time
-                before: !input end_time
-              - condition: numeric_state
-                entity_id: !input growatt_charge_current
-                above: 0
-        sequence:
-          - choose:
-              # STOPNJA 1: Poraba presega kritično mejo (npr. priklop EV) -> Zmanjšaj na 0A
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    above: !input max_grid_power
-                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 0A
-                  - condition: template
-                    value_template: "{{ states(current_entity) | int != 0 }}"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input growatt_charge_current
-                    data:
-                      value: 0
-
-              # STOPNJA 2: Poraba je visoka, a pod kritično mejo (npr. med 2400W in 3000W) -> Omeji na 10A
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    above: 2400
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    below: !input max_grid_power
-                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 10A
-                  - condition: template
-                    value_template: "{{ states(current_entity) | int != 10 }}"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input growatt_charge_current
-                    data:
-                      value: 10
-
-              # STOPNJA 3: Poraba je zmerna (npr. med 1500W in 2400W) -> Nastavi na 20A
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    above: 1500
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    below: 2400
-                  # Pametni filter: Ukaz pošljemo le, če tok že ni na 20A
-                  - condition: template
-                    value_template: "{{ states(current_entity) | int != 20 }}"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input growatt_charge_current
-                    data:
-                      value: 20
-
-              # STOPNJA 4: Varno območje (Poraba hiše je nizka, pod 1500W) -> Dvigni na maksimalni varni tok
-              - conditions:
-                  - condition: numeric_state
-                    entity_id: !input shelly_power
-                    below: 1500
-                  # Pametni filter: Ukaz pošljemo le, če tok že ni na max vrednosti
-                  - condition: template
-                    value_template: "{{ states(current_entity) | int != (max_current_val | int) }}"
-                sequence:
-                  - service: number.set_value
-                    target:
-                      entity_id: !input growatt_charge_current
-                    data:
-                      value: "{{ max_current_val | int }}"
-
-      # 3. AKCIJA: Popoln izklop ob doseženem % baterije ali koncu ure
+      # 2. AKCIJA: POPOLN IZKLOP (Ob doseženem % baterije ALI ob izteku časa)
       - conditions:
           - condition: or
             conditions:
@@ -240,19 +162,40 @@ action:
               - condition: trigger
                 id: konec_cas
         sequence:
-          # Prisili preklop nazaj na razsmernik z znižanjem AC to Bat pod trenutni SOC
+          # KORAK 1: Prelisičimo register z znižanjem AC to Bat pod trenutni SOC -> Growatt spusti omrežje in preklopi na baterijo
           - service: number.set_value
             target:
               entity_id: !input growatt_ac_to_bat_volt
             data:
               value: "{{ (states(soc_sensor) | float - (offset_val | float)) | round(0) }}"
-          - delay: "00:00:03"
-          # Popolnoma zapremo tok polnjenja na 0A
+          
+          # Zamik 15 sekund, da Growatt varno spusti omrežne releje in preide na baterijsko delovanje
+          - delay: "00:00:15"
+          
+          # KORAK 2: Zapremo tok polnjenja na 0A za maksimalno varnost
           - service: number.set_value
             target:
               entity_id: !input growatt_charge_current
             data:
               value: 0
+              
+          # Zamik 2 minuti: Počakava, da se jutranje/dnevno stanje popolnoma umiri
+          - delay: "00:02:00"
+          
+          # KORAK 3: PONASTAVITEV REGISTROV NA PRIVZETE DNEVNE VREDNOSTI ZA NASLEDNJI DAN
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_bat_low_to_uti
+            data:
+              value: "{{ def_bat_low | int }}"
+              
+          - delay: "00:00:15"
+          
+          - service: number.set_value
+            target:
+              entity_id: !input growatt_ac_to_bat_volt
+            data:
+              value: "{{ def_ac_to_bat | int }}"
 
 mode: parallel
 max: 10
