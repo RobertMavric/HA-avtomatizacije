@@ -60,12 +60,12 @@ void shraniNastavitve() {
 void handleRoot() {
     RtcDateTime now = Rtc.GetDateTime();
     
-    char casStr[10];
-    char datumStr[15];
+    char casStr[6];
+    char datumStr[11];
     sprintf(casStr, "%02d:%02d", now.Hour(), now.Minute());
     sprintf(datumStr, "%02d.%02d.%04d", now.Day(), now.Month(), now.Year());
 
-    char vvStr[10], viStr[10], lvStr[10], liStr[10];
+    char vvStr[6], viStr[6], lvStr[6], liStr[6];
     sprintf(vvStr, "%02d:%02d", nastavitve.vrataVklopUra, nastavitve.vrataVklopMin);
     sprintf(viStr, "%02d:%02d", nastavitve.vrataIzklopUra, nastavitve.vrataIzklopMin);
     sprintf(lvStr, "%02d:%02d", nastavitve.lucVklopUra, nastavitve.lucVklopMin);
@@ -222,7 +222,7 @@ void setup() {
     digitalWrite(PIN_VRATA, LOW);
     digitalWrite(PIN_LUC, LOW);
 
-    // Fiksna in varna I2C konfiguracija za vaš Wemos
+    // Popolnoma varna I2C konfiguracija brez motenja zagona ali USB-ja:
     // D7 (GPIO 13) = SDA
     // D6 (GPIO 12) = SCL
     Wire.begin(13, 12); 
@@ -233,6 +233,8 @@ void setup() {
     }
     
     Rtc.Enable32kHzPin(false);
+
+
     IPAddress lokalni_IP(10, 10, 10, 10);
     IPAddress prehod_Gateway(10, 10, 10, 10);
     IPAddress maska_Subnet(255, 255, 255, 0);
@@ -289,6 +291,4 @@ void loop() {
             }
         }
     }
-  }
  }
-}
